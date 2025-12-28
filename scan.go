@@ -9,15 +9,17 @@ import (
 	"strings"
 )
 
-//HandleError takes an error and does basic error handling
+// HandleError takes an error and does basic error handling
 func HandleError(err error) {
 	if err != nil {
 		panic(err)
 	}
 }
 
-/*ScanGitFolders is a recursive function that takes a slice of strings "folders" and a string "folder",
-opens the folder, and recursively scans the files in said folder, appending any .git folders to the folders slice*/
+/*
+ScanGitFolders is a recursive function that takes a slice of strings "folders" and a string "folder",
+opens the folder, and recursively scans the files in said folder, appending any .git folders to the folders slice
+*/
 func ScanGitFolders(folders []string, folder string) []string {
 	folder = strings.TrimSuffix(folder, "/")
 
@@ -50,13 +52,16 @@ func ScanGitFolders(folders []string, folder string) []string {
 	return folders
 }
 
-/*RecursiveScanFolder takes a string "folder" and calls on ScanGitFolders giving it an empty
- string slice and the folder*/
+/*
+RecursiveScanFolder takes a string "folder" and calls on ScanGitFolders giving it an empty
+
+	string slice and the folder
+*/
 func RecursiveScanFolder(folder string) []string {
 	return ScanGitFolders(make([]string, 0), folder)
 }
 
-//GetDotPath returns the file path of the file where the .git directories' file paths are being stores
+// GetDotPath returns the file path of the file where the .git directories' file paths are being stores
 func GetDotPath() string {
 	usr, err := user.Current()
 	HandleError(err)
@@ -66,7 +71,7 @@ func GetDotPath() string {
 	return dotfile
 }
 
-//OpenFile takes a string "filepath" and handles the opening of the file at that path, returning said file
+// OpenFile takes a string "filepath" and handles the opening of the file at that path, returning said file
 func OpenFile(filepath string) *os.File {
 	f, err := os.OpenFile(filepath, os.O_APPEND|os.O_RDWR, 0755)
 	if err != nil {
@@ -81,8 +86,10 @@ func OpenFile(filepath string) *os.File {
 	return f
 }
 
-/*JoinSlice takes two string slices "new" and "existing" and appends into "existing" the values
-in "new" that don't exist in it*/
+/*
+JoinSlice takes two string slices "new" and "existing" and appends into "existing" the values
+in "new" that don't exist in it
+*/
 func JoinSlice(new, existing []string) []string {
 	for _, i := range new {
 		if !SliceContains(existing, i) {
@@ -93,7 +100,7 @@ func JoinSlice(new, existing []string) []string {
 	return existing
 }
 
-//SliceContains takes a string slice and a string value and checks whether that value exists in the slice
+// SliceContains takes a string slice and a string value and checks whether that value exists in the slice
 func SliceContains(slice []string, val string) bool {
 	for _, v := range slice {
 		if v == val {
@@ -104,14 +111,16 @@ func SliceContains(slice []string, val string) bool {
 	return false
 }
 
-//DumpStringsToFile takes a string slice and a filepath and dumps the content of the slice into the file at the path
+// DumpStringsToFile takes a string slice and a filepath and dumps the content of the slice into the file at the path
 func DumpStringsSliceToFile(repos []string, filepath string) {
 	content := strings.Join(repos, "\n")
 	os.WriteFile(filepath, []byte(content), 0755)
 }
 
-/*ParseFileLinesToSlice takes a string "filepath" and parses the content
-of the file at that path into a slice of strings*/
+/*
+ParseFileLinesToSlice takes a string "filepath" and parses the content
+of the file at that path into a slice of strings
+*/
 func ParseFileLinesToSlice(filepath string) []string {
 	f := OpenFile(filepath)
 	defer f.Close()
@@ -131,15 +140,17 @@ func ParseFileLinesToSlice(filepath string) []string {
 	return lines
 }
 
-/*AddNewSliceElementsToFile takes a string "filepath" and a slice of strings "newRepos" and calls on the functions
-ParseFileLinesToSlice, JoinSlice, and DumpStringsSliceToFile*/
+/*
+AddNewSliceElementsToFile takes a string "filepath" and a slice of strings "newRepos" and calls on the functions
+ParseFileLinesToSlice, JoinSlice, and DumpStringsSliceToFile
+*/
 func AddNewSliceElementsToFile(filepath string, newRepos []string) {
 	existingRepos := ParseFileLinesToSlice(filepath)
 	repos := JoinSlice(newRepos, existingRepos)
 	DumpStringsSliceToFile(repos, filepath)
 }
 
-//Scan takes a string "folder" and is the initial function that is used to start the scanning of the given folder
+// Scan takes a string "folder" and is the initial function that is used to start the scanning of the given folder
 func Scan(folder string) {
 	fmt.Printf("Found folders:\n\n")
 	repositories := RecursiveScanFolder(folder)
