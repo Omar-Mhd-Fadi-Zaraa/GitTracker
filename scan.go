@@ -4,31 +4,115 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"log"
 	"os"
 	"os/user"
 	"strings"
 )
 
-// HandleError takes an error and does basic error handling
-func HandleError(err error) {
+func getDotFilePath() string {
+	usr, err := user.Current()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+
+	dotFile := usr.HomeDir + "/.gogitlocalstats"
+
+	return dotFile
 }
 
-/*
-ScanGitFolders is a recursive function that takes a slice of strings "folders" and a string "folder",
-opens the folder, and recursively scans the files in said folder, appending any .git folders to the folders slice
-*/
-func ScanGitFolders(folders []string, folder string) []string {
+func openFile(filePath string) *os.File {
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_RDWR, 0755)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// file does not exist
+			_, err = os.Create(filePath)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			panic(err)
+		}
+	}
+
+	return f
+}
+
+func parseFileLinesToSlice(filePath string) []string {
+	f := openFile(filePath)
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		if err != io.EOF {
+			panic(err)
+		}
+	}
+
+	return lines
+}
+
+func sliceContains(slice []string, value string) bool {
+	for _, v := range slice {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+func joinSlices(new []string, existing []string) []string {
+	for _, i := range new {
+		if !sliceContains(existing, i) {
+			existing = append(existing, i)
+		}
+	}
+	return existing
+}
+
+func dumpStringsSliceToFile(repos []string, filePath string) {
+	content := strings.Join(repos, "\n")
+	ioutil.WriteFile(filePath, []byte(content), 0755)
+}
+
+func addNewSliceElementsToFile(filePath string, newRepos []string) {
+	existingRepos := parseFileLinesToSlice(filePath)
+	repos := joinSlices(newRepos, existingRepos)
+	dumpStringsSliceToFile(repos, filePath)
+}
+
+func recursiveScanFolder(folder string) []string {
+	return scanGitFolders(make([]string, 0), folder)
+}
+
+// scan scans a new folder for Git repositories
+func scan(folder string) {
+	fmt.Printf("Found folders:\n\n")
+	repositories := recursiveScanFolder(folder)
+	filePath := getDotFilePath()
+	addNewSliceElementsToFile(filePath, repositories)
+	fmt.Printf("\n\nSuccessfully added\n\n")
+}
+
+
+func scanGitFolders(folders []string, folder string) []string {
+	// trim the last `/`
 	folder = strings.TrimSuffix(folder, "/")
 
 	f, err := os.Open(folder)
-	HandleError(err)
-
-	files, err := f.ReadDir(-1)
+	if err != nil {
+		log.Fatal(err)
+	}
+	files, err := f.Readdir(-1)
 	f.Close()
-	HandleError(err)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var path string
 
@@ -44,117 +128,9 @@ func ScanGitFolders(folders []string, folder string) []string {
 			if file.Name() == "vendor" || file.Name() == "node_modules" {
 				continue
 			}
-
-			folders = ScanGitFolders(folders, path)
+			folders = scanGitFolders(folders, path)
 		}
 	}
 
 	return folders
-}
-
-/*
-RecursiveScanFolder takes a string "folder" and calls on ScanGitFolders giving it an empty
-
-	string slice and the folder
-*/
-func RecursiveScanFolder(folder string) []string {
-	return ScanGitFolders(make([]string, 0), folder)
-}
-
-// GetDotPath returns the file path of the file where the .git directories' file paths are being stores
-func GetDotPath() string {
-	usr, err := user.Current()
-	HandleError(err)
-
-	dotfile := usr.HomeDir + "/.gogitlocalstats"
-
-	return dotfile
-}
-
-// OpenFile takes a string "filepath" and handles the opening of the file at that path, returning said file
-func OpenFile(filepath string) *os.File {
-	f, err := os.OpenFile(filepath, os.O_APPEND|os.O_RDWR, 0755)
-	if err != nil {
-		if os.IsNotExist(err) {
-			_, err := os.Create(filepath)
-			HandleError(err)
-		} else {
-			panic(err)
-		}
-	}
-
-	return f
-}
-
-/*
-JoinSlice takes two string slices "new" and "existing" and appends into "existing" the values
-in "new" that don't exist in it
-*/
-func JoinSlice(new, existing []string) []string {
-	for _, i := range new {
-		if !SliceContains(existing, i) {
-			existing = append(existing, i)
-		}
-	}
-
-	return existing
-}
-
-// SliceContains takes a string slice and a string value and checks whether that value exists in the slice
-func SliceContains(slice []string, val string) bool {
-	for _, v := range slice {
-		if v == val {
-			return true
-		}
-	}
-
-	return false
-}
-
-// DumpStringsToFile takes a string slice and a filepath and dumps the content of the slice into the file at the path
-func DumpStringsSliceToFile(repos []string, filepath string) {
-	content := strings.Join(repos, "\n")
-	os.WriteFile(filepath, []byte(content), 0755)
-}
-
-/*
-ParseFileLinesToSlice takes a string "filepath" and parses the content
-of the file at that path into a slice of strings
-*/
-func ParseFileLinesToSlice(filepath string) []string {
-	f := OpenFile(filepath)
-	defer f.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		if err != io.EOF {
-			panic(err)
-		}
-	}
-
-	return lines
-}
-
-/*
-AddNewSliceElementsToFile takes a string "filepath" and a slice of strings "newRepos" and calls on the functions
-ParseFileLinesToSlice, JoinSlice, and DumpStringsSliceToFile
-*/
-func AddNewSliceElementsToFile(filepath string, newRepos []string) {
-	existingRepos := ParseFileLinesToSlice(filepath)
-	repos := JoinSlice(newRepos, existingRepos)
-	DumpStringsSliceToFile(repos, filepath)
-}
-
-// Scan takes a string "folder" and is the initial function that is used to start the scanning of the given folder
-func Scan(folder string) {
-	fmt.Printf("Found folders:\n\n")
-	repositories := RecursiveScanFolder(folder)
-	filePath := GetDotPath()
-	AddNewSliceElementsToFile(filePath, repositories)
-	fmt.Printf("\n\nSuccefully added\n\n")
 }

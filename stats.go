@@ -5,48 +5,53 @@ import (
 	"sort"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	"gopkg.in/src-d/go-git.v4"
+	"gopkg.in/src-d/go-git.v4/plumbing/object"
 )
 
-const daysInLastSixMonths = 183
 const outOfRange = 99999
+const daysInLastSixMonths = 183
 const weeksInLastSixMonths = 26
 
 type column []int
 
-func Stats(email string) {
+func stats(email string) {
 	commits := processRepositories(email)
-	printCommitStats(commits)
+	printCommitsStats(commits)
 }
 
-func processRepositories(email string) map[int]int {
-	filePath := GetDotPath()
-	repos := ParseFileLinesToSlice(filePath)
-	daysInMap := daysInLastSixMonths
-
-	commits := make(map[int]int, daysInMap)
-	for i := daysInMap; i > 0; i-- {
-		commits[i] = 0
-	}
-
-	for _, path := range repos {
-		commits = fillCommits(email, path, commits)
-	}
-
-	return commits
+func getBeginningOfDay(t time.Time) time.Time {
+	year, month, day := t.Date()
+	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+	return startOfDay
 }
 
-func fillCommits(email, path string, commits map[int]int) map[int]int {
+func countDaysSinceDate(date time.Time) int {
+	days := 0
+	now := getBeginningOfDay(time.Now())
+	for date.Before(now) {
+		date = date.Add(time.Hour * 24)
+		days++
+		if days > daysInLastSixMonths {
+			return outOfRange
+		}
+	}
+	return days
+}
+
+func fillCommits(email string, path string, commits map[int]int) map[int]int {
 	repo, err := git.PlainOpen(path)
-	HandleError(err)
-
+	if err != nil {
+		panic(err)
+	}
 	ref, err := repo.Head()
-	HandleError(err)
-
+	if err != nil {
+		panic(err)
+	}
 	iterator, err := repo.Log(&git.LogOptions{From: ref.Hash()})
-	HandleError(err)
-
+	if err != nil {
+		panic(err)
+	}
 	offset := calcOffset()
 	err = iterator.ForEach(func(c *object.Commit) error {
 		daysAgo := countDaysSinceDate(c.Author.When) + offset
@@ -61,30 +66,28 @@ func fillCommits(email, path string, commits map[int]int) map[int]int {
 
 		return nil
 	})
-	HandleError(err)
+	if err != nil {
+		panic(err)
+	}
 
 	return commits
 }
 
-func getBeginningOfDay(t time.Time) time.Time {
-	year, month, day := t.Date()
-	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-	return startOfDay
-}
+func processRepositories(email string) map[int]int {
+	filePath := getDotFilePath()
+	repos := parseFileLinesToSlice(filePath)
+	daysInMap := daysInLastSixMonths
 
-func countDaysSinceDate(date time.Time) int {
-	days := 0
-	now := getBeginningOfDay(time.Now())
-
-	for date.Before(now) {
-		date = date.Add(time.Hour * 24)
-		days++
-		if days > daysInLastSixMonths {
-			return outOfRange
-		}
+	commits := make(map[int]int, daysInMap)
+	for i := daysInMap; i > 0; i-- {
+		commits[i] = 0
 	}
 
-	return days
+	for _, path := range repos {
+		commits = fillCommits(email, path, commits)
+	}
+
+	return commits
 }
 
 func calcOffset() int {
@@ -109,108 +112,6 @@ func calcOffset() int {
 	}
 
 	return offset
-}
-
-func printCommitStats(commits map[int]int) {
-	keys := sortMapIntoSlice(commits)
-	cols := buildCols(keys, commits)
-	printCells(cols)
-}
-
-func sortMapIntoSlice(m map[int]int) []int {
-	var keys []int
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Ints(keys)
-
-	return keys
-}
-
-func buildCols(keys []int, commits map[int]int) map[int]column {
-	cols := make(map[int]column)
-	col := column{}
-
-	for _, k := range keys {
-		week := int(k / 7)
-		dayInWeek := k % 7
-
-		if dayInWeek == 0 {
-			col = column{}
-		}
-
-		col = append(col, commits[k])
-
-		if dayInWeek == 06 {
-			cols[week] = col
-		}
-	}
-
-	return cols
-}
-
-func printCells(cols map[int]column) {
-	printMonths()
-
-	for j := 5; j >= 0; j-- {
-		for i := weeksInLastSixMonths + 1; i >= 0; i-- {
-			if i == weeksInLastSixMonths+1 {
-				printDayCol(j)
-			}
-
-			if col, ok := cols[i]; ok {
-				if i == 0 && j == calcOffset()-1 {
-					printCell(col[j], true)
-					continue
-				} else {
-					if len(col) > j {
-						printCell(col[j], false)
-						continue
-					}
-				}
-			}
-
-			printCell(0, false)
-		}
-
-		fmt.Printf("\n")
-	}
-}
-
-func printMonths() {
-	week := getBeginningOfDay(time.Now()).Add(-(daysInLastSixMonths * time.Hour * 24))
-	month := week.Month()
-
-	fmt.Printf("          ")
-	for {
-		if week.Month() != month {
-			fmt.Printf("%s ", week.Month().String()[:3])
-			month = week.Month()
-		} else {
-			fmt.Printf("      ")
-		}
-
-		week = week.Add(7 * time.Hour * 24)
-		if week.After(time.Now()) {
-			break
-		}
-	}
-	fmt.Printf("\n")
-}
-
-func printDayCol(day int) {
-	out := "     "
-	switch day {
-	case 1:
-		out = " Mon "
-	case 3:
-		out = " Wed "
-	case 5:
-		out = " Fri "
-	}
-
-	fmt.Printf(out)
 }
 
 func printCell(val int, today bool) {
@@ -242,4 +143,101 @@ func printCell(val int, today bool) {
 	}
 
 	fmt.Printf(escape+str+"\033[0m", val)
+}
+
+func printCommitsStats(commits map[int]int) {
+	keys := sortMapIntoSlice(commits)
+	cols := buildCols(keys, commits)
+	printCells(cols)
+}
+
+func sortMapIntoSlice(m map[int]int) []int {
+	var keys []int
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+
+	return keys
+}
+
+func buildCols(keys []int, commits map[int]int) map[int]column {
+	cols := make(map[int]column)
+	col := column{}
+
+	for _, k := range keys {
+		week := int(k / 7) 
+		dayinweek := k % 7 
+
+		if dayinweek == 0 { 
+			col = column{}
+		}
+
+		col = append(col, commits[k])
+
+		if dayinweek == 6 {
+			cols[week] = col
+		}
+	}
+
+	return cols
+}
+
+func printCells(cols map[int]column) {
+	printMonths()
+	for j := 6; j >= 0; j-- {
+		for i := weeksInLastSixMonths + 1; i >= 0; i-- {
+			if i == weeksInLastSixMonths+1 {
+				printDayCol(j)
+			}
+			if col, ok := cols[i]; ok {
+				//special case today
+				if i == 0 && j == calcOffset()-1 {
+					printCell(col[j], true)
+					continue
+				} else {
+					if len(col) > j {
+						printCell(col[j], false)
+						continue
+					}
+				}
+			}
+			printCell(0, false)
+		}
+		fmt.Printf("\n")
+	}
+}
+
+func printMonths() {
+	week := getBeginningOfDay(time.Now()).Add(-(daysInLastSixMonths * time.Hour * 24))
+	month := week.Month()
+	fmt.Printf("         ")
+	for {
+		if week.Month() != month {
+			fmt.Printf("%s ", week.Month().String()[:3])
+			month = week.Month()
+		} else {
+			fmt.Printf("    ")
+		}
+
+		week = week.Add(7 * time.Hour * 24)
+		if week.After(time.Now()) {
+			break
+		}
+	}
+	fmt.Printf("\n")
+}
+
+func printDayCol(day int) {
+	out := "     "
+	switch day {
+	case 1:
+		out = " Mon "
+	case 3:
+		out = " Wed "
+	case 5:
+		out = " Fri "
+	}
+
+	fmt.Printf(out)
 }
